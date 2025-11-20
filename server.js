@@ -50,14 +50,14 @@ app.get('/v1/models', async (req, res) => {
 
 app.post('/v1/chat/completions', async (req, res) => {
   try {
-    const { messages, model, stream = true, ...params } = req.body;
+    const { messages, model, stream = true, tools, ...params} = req.body;
     
     if (!messages) {
       return res.status(400).json({ error: 'messages is required' });
     }
     
-    const requestBody = generateRequestBody(messages, model, params);
-    //console.log(JSON.stringify(requestBody));
+    const requestBody = generateRequestBody(messages, model, params, tools);
+    //console.log(JSON.stringify(requestBody,null,2));
     
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream');
@@ -66,15 +66,27 @@ app.post('/v1/chat/completions', async (req, res) => {
       
       const id = `chatcmpl-${Date.now()}`;
       const created = Math.floor(Date.now() / 1000);
+      let hasToolCall = false;
       
-      await generateAssistantResponse(requestBody, (content) => {
-        res.write(`data: ${JSON.stringify({
-          id,
-          object: 'chat.completion.chunk',
-          created,
-          model,
-          choices: [{ index: 0, delta: { content }, finish_reason: null }]
-        })}\n\n`);
+      await generateAssistantResponse(requestBody, (data) => {
+        if (data.type === 'tool_call') {
+          hasToolCall = true;
+          res.write(`data: ${JSON.stringify({
+            id,
+            object: 'chat.completion.chunk',
+            created,
+            model,
+            choices: [{ index: 0, delta: { tool_calls: [data.tool_call] }, finish_reason: null }]
+          })}\n\n`);
+        } else {
+          res.write(`data: ${JSON.stringify({
+            id,
+            object: 'chat.completion.chunk',
+            created,
+            model,
+            choices: [{ index: 0, delta: { content: data.content }, finish_reason: null }]
+          })}\n\n`);
+        }
       });
       
       res.write(`data: ${JSON.stringify({
@@ -82,15 +94,25 @@ app.post('/v1/chat/completions', async (req, res) => {
         object: 'chat.completion.chunk',
         created,
         model,
-        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }]
+        choices: [{ index: 0, delta: {}, finish_reason: hasToolCall ? 'tool_calls' : 'stop' }]
       })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
     } else {
       let fullContent = '';
-      await generateAssistantResponse(requestBody, (content) => {
-        fullContent += content;
+      let toolCalls = [];
+      await generateAssistantResponse(requestBody, (data) => {
+        if (data.type === 'tool_call') {
+          toolCalls.push(data.tool_call);
+        } else {
+          fullContent += data.content;
+        }
       });
+      
+      const message = { role: 'assistant', content: fullContent };
+      if (toolCalls.length > 0) {
+        message.tool_calls = toolCalls;
+      }
       
       res.json({
         id: `chatcmpl-${Date.now()}`,
@@ -99,8 +121,8 @@ app.post('/v1/chat/completions', async (req, res) => {
         model,
         choices: [{
           index: 0,
-          message: { role: 'assistant', content: fullContent },
-          finish_reason: 'stop'
+          message,
+          finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop'
         }]
       });
     }

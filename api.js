@@ -38,20 +38,38 @@ export async function generateAssistantResponse(requestBody, callback) {
       const jsonStr = line.slice(6);
       try {
         const data = JSON.parse(jsonStr);
-        const parts = data.response?.candidates?.[0]?.content?.parts?.[0];
+        const parts = data.response?.candidates?.[0]?.content?.parts;
         if (parts) {
-          if (parts.thought === true) {
-            if (!thinkingStarted) {
-              callback('<think>\n');
-              thinkingStarted = true;
+          for (const part of parts) {
+            if (part.thought === true) {
+              if (!thinkingStarted) {
+                callback({ type: 'thinking', content: '<think>\n' });
+                thinkingStarted = true;
+              }
+              callback({ type: 'thinking', content: part.text || '' });
+            } else if (part.text !== undefined) {
+              if (thinkingStarted) {
+                callback({ type: 'thinking', content: '\n</think>\n' });
+                thinkingStarted = false;
+              }
+              callback({ type: 'text', content: part.text });
+            } else if (part.functionCall) {
+              if (thinkingStarted) {
+                callback({ type: 'thinking', content: '\n</think>\n' });
+                thinkingStarted = false;
+              }
+              callback({ 
+                type: 'tool_call', 
+                tool_call: {
+                  id: part.functionCall.id,
+                  type: 'function',
+                  function: {
+                    name: part.functionCall.name,
+                    arguments: JSON.stringify(part.functionCall.args)
+                  }
+                }
+              });
             }
-            callback(parts.text || '');
-          } else if (parts.text !== undefined) {
-            if (thinkingStarted) {
-              callback('\n</think>\n');
-              thinkingStarted = false;
-            }
-            callback(parts.text);
           }
         }
       } catch (e) {

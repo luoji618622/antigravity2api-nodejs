@@ -17,28 +17,126 @@ function generateProjectId() {
   const randomNum = Math.random().toString(36).substring(2, 7);
   return `${randomAdj}-${randomNoun}-${randomNum}`;
 }
-function openaiMessageToAntigravity(openaiMessages){
-  return openaiMessages.map((message)=>{
-    if (message.role === "user" || message.role === "system"){
-      return {
-        role: "user",
-        parts: [
-          {
-            text: message.content
-          }
-        ]
-      }
-    }else if (message.role === "assistant"){
-      return {
-        role: "model",
-        parts: [
-          {
-            text: message.content
-          }
-        ]
+function extractImagesFromContent(content) {
+  const result = { text: '', images: [] };
+
+  // 如果content是字符串，直接返回
+  if (typeof content === 'string') {
+    result.text = content;
+    return result;
+  }
+
+  // 如果content是数组（multimodal格式）
+  if (Array.isArray(content)) {
+    for (const item of content) {
+      if (item.type === 'text') {
+        result.text += item.text;
+      } else if (item.type === 'image_url') {
+        // 提取base64图片数据
+        const imageUrl = item.image_url?.url || '';
+
+        // 匹配 data:image/{format};base64,{data} 格式
+        const match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+        if (match) {
+          const format = match[1]; // 例如 png, jpeg, jpg
+          const base64Data = match[2];
+          result.images.push({
+            inlineData: {
+              mimeType: `image/${format}`,
+              data: base64Data
+            }
+          })
+        }
       }
     }
+  }
+
+  return result;
+}
+function handleUserMessage(extracted, antigravityMessages){
+  antigravityMessages.push({
+    role: "user",
+    parts: [
+      {
+        text: extracted.text
+      },
+      ...extracted.images
+    ]
   })
+}
+function handleAssistantMessage(message, antigravityMessages){
+  const lastMessage = antigravityMessages[antigravityMessages.length - 1];
+  const hasToolCalls = message.tool_calls && message.tool_calls.length > 0;
+  const hasContent = message.content && message.content.trim() !== '';
+  
+  const antigravityTools = hasToolCalls ? message.tool_calls.map(toolCall => ({
+    functionCall: {
+      id: toolCall.id,
+      name: toolCall.function.name,
+      args: {
+        query: toolCall.function.arguments
+      }
+    }
+  })) : [];
+  
+  if (lastMessage?.role === "model" && hasToolCalls && !hasContent){
+    lastMessage.parts.push(...antigravityTools)
+  }else{
+    const parts = [];
+    if (hasContent) parts.push({ text: message.content });
+    parts.push(...antigravityTools);
+    
+    antigravityMessages.push({
+      role: "model",
+      parts
+    })
+  }
+}
+function handleToolCall(message, antigravityMessages){
+  // 从之前的 model 消息中找到对应的 functionCall name
+  let functionName = '';
+  for (let i = antigravityMessages.length - 1; i >= 0; i--) {
+    if (antigravityMessages[i].role === 'model') {
+      const parts = antigravityMessages[i].parts;
+      for (const part of parts) {
+        if (part.functionCall && part.functionCall.id === message.tool_call_id) {
+          functionName = part.functionCall.name;
+          break;
+        }
+      }
+      if (functionName) break;
+    }
+  }
+  
+  antigravityMessages.push({
+    role: "user",
+    parts: [
+      {
+        functionResponse: {
+          id: message.tool_call_id,
+          name: functionName,
+          response: {
+            output: message.content
+          }
+        }
+      }
+    ]
+  })
+}
+function openaiMessageToAntigravity(openaiMessages){
+  const antigravityMessages = [];
+  for (const message of openaiMessages) {
+    if (message.role === "user" || message.role === "system") {
+      const extracted = extractImagesFromContent(message.content);
+      handleUserMessage(extracted, antigravityMessages);
+    } else if (message.role === "assistant") {
+      handleAssistantMessage(message, antigravityMessages);
+    } else if (message.role === "tool") {
+      handleToolCall(message, antigravityMessages);
+    }
+  }
+  
+  return antigravityMessages;
 }
 function generateGenerationConfig(parameters, enableThinking, actualModelName){
   const generationConfig = {
@@ -64,7 +162,22 @@ function generateGenerationConfig(parameters, enableThinking, actualModelName){
   }
   return generationConfig
 }
-function generateRequestBody(openaiMessages,modelName,parameters){
+function convertOpenAIToolsToAntigravity(openaiTools){
+  if (!openaiTools || openaiTools.length === 0) return [];
+  return openaiTools.map((tool)=>{
+    delete tool.function.parameters.$schema;
+    return {
+      functionDeclarations: [
+        {
+          name: tool.function.name,
+          description: tool.function.description,
+          parameters: tool.function.parameters
+        }
+      ]
+    }
+  })
+}
+function generateRequestBody(openaiMessages,modelName,parameters,openaiTools){
   const enableThinking = modelName.endsWith('-thinking') || 
     modelName === 'gemini-2.5-pro' || 
     modelName.startsWith('gemini-3-pro-') ||
@@ -81,7 +194,7 @@ function generateRequestBody(openaiMessages,modelName,parameters){
         role: "user",
         parts: [{ text: config.systemInstruction }]
       },
-      tools:[],
+      tools: convertOpenAIToolsToAntigravity(openaiTools),
       toolConfig: {
         functionCallingConfig: {
           mode: "VALIDATED"
