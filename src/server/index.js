@@ -1,8 +1,8 @@
 import express from 'express';
-import { generateAssistantResponse, getAvailableModels } from './api.js';
-import { generateRequestBody } from './utils.js';
-import logger from './logger.js';
-import config from './config.js';
+import { generateAssistantResponse, getAvailableModels } from '../api/client.js';
+import { generateRequestBody } from '../utils/utils.js';
+import logger from '../utils/logger.js';
+import config from '../config/config.js';
 
 const app = express();
 

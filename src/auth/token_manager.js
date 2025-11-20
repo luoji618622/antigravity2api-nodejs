@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { log } from './logger.js';
+import { log } from '../utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,7 +10,7 @@ const CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleuse
 const CLIENT_SECRET = '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';
 
 class TokenManager {
-  constructor(filePath = path.join(__dirname, 'accounts.json')) {
+  constructor(filePath = path.join(__dirname,'..','..','data' ,'accounts.json')) {
     this.filePath = filePath;
     this.tokens = [];
     this.currentIndex = 0;

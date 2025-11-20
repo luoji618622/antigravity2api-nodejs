@@ -3,7 +3,13 @@ import https from 'https';
 import { URL } from 'url';
 import crypto from 'crypto';
 import fs from 'fs';
-import log from './logger.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import log from '../src/utils/logger.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ACCOUNTS_FILE = path.join(__dirname, '..', 'data', 'accounts.json');
 
 const CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
 const CLIENT_SECRET = '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';
@@ -93,17 +99,23 @@ const server = http.createServer((req, res) => {
         
         let accounts = [];
         try {
-          if (fs.existsSync('accounts.json')) {
-            accounts = JSON.parse(fs.readFileSync('accounts.json', 'utf-8'));
+          if (fs.existsSync(ACCOUNTS_FILE)) {
+            accounts = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf-8'));
           }
         } catch (err) {
           log.warn('读取 accounts.json 失败，将创建新文件');
         }
         
         accounts.push(account);
-        fs.writeFileSync('accounts.json', JSON.stringify(accounts, null, 2));
         
-        log.info('Token 已保存到 accounts.json');
+        const dir = path.dirname(ACCOUNTS_FILE);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        
+        fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2));
+        
+        log.info(`Token 已保存到 ${ACCOUNTS_FILE}`);
         //log.info(`过期时间: ${account.expires_in}秒`);
         
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

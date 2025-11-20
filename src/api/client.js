@@ -1,6 +1,5 @@
-import tokenManager from './token_manager.js';
-import { generateRequestBody } from './utils.js';
-import config from './config.js';
+import tokenManager from '../auth/token_manager.js';
+import config from '../config/config.js';
 
 export async function generateAssistantResponse(requestBody, callback) {
   const token = await tokenManager.getToken();
