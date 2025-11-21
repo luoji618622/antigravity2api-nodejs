@@ -1,12 +1,51 @@
 import express from 'express';
+import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { generateAssistantResponse, getAvailableModels } from '../api/client.js';
 import { generateRequestBody } from '../utils/utils.js';
 import logger from '../utils/logger.js';
 import config from '../config/config.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 
+app.use(cors());
 app.use(express.json({ limit: config.security.maxRequestSize }));
+
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, '../../public')));
+
+// Token upload endpoint
+app.post('/api/upload-token', (req, res) => {
+  try {
+    const tokenData = req.body;
+    if (!tokenData) {
+      return res.status(400).json({ error: 'No data provided' });
+    }
+
+    // Ensure data directory exists
+    const dataDir = path.join(__dirname, '../../data');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+
+    // Write to accounts.json
+    fs.writeFileSync(
+      path.join(dataDir, 'accounts.json'),
+      JSON.stringify(tokenData, null, 2)
+    );
+
+    logger.info('Token updated via Web UI');
+    res.json({ success: true, message: 'Token saved' });
+  } catch (error) {
+    logger.error('Failed to save token:', error);
+    res.status(500).json({ error: 'Failed to save token' });
+  }
+});
 
 app.use((err, req, res, next) => {
   if (err.type === 'entity.too.large') {
@@ -49,25 +88,24 @@ app.get('/v1/models', async (req, res) => {
 });
 
 app.post('/v1/chat/completions', async (req, res) => {
-  const { messages, model, stream = true, tools, ...params} = req.body;
+  const { messages, model, stream = true, tools, ...params } = req.body;
   try {
-    
+
     if (!messages) {
       return res.status(400).json({ error: 'messages is required' });
     }
-    
+
     const requestBody = generateRequestBody(messages, model, params, tools);
-    //console.log(JSON.stringify(requestBody,null,2));
-    
+
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
-      
+
       const id = `chatcmpl-${Date.now()}`;
       const created = Math.floor(Date.now() / 1000);
       let hasToolCall = false;
-      
+
       await generateAssistantResponse(requestBody, (data) => {
         if (data.type === 'tool_calls') {
           hasToolCall = true;
@@ -88,7 +126,7 @@ app.post('/v1/chat/completions', async (req, res) => {
           })}\n\n`);
         }
       });
-      
+
       res.write(`data: ${JSON.stringify({
         id,
         object: 'chat.completion.chunk',
@@ -108,12 +146,12 @@ app.post('/v1/chat/completions', async (req, res) => {
           fullContent += data.content;
         }
       });
-      
+
       const message = { role: 'assistant', content: fullContent };
       if (toolCalls.length > 0) {
         message.tool_calls = toolCalls;
       }
-      
+
       res.json({
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion',

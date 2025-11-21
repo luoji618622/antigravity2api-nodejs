@@ -20,14 +20,6 @@ try {
   config = defaultConfig;
   log.warn('⚠ 配置文件未找到，使用默认配置');
 }
-// ==================== 修改开始 ====================
-// 优先使用环境变量覆盖配置 (Zeabur 等云平台需要)
-// 1. 设置端口 (Zeabur 会自动注入 PORT 环境变量)
-if (process.env.PORT) {
-  config.server.port = parseInt(process.env.PORT);
-  // 云端部署通常需要监听 0.0.0.0 才能被外部访问，而不是 127.0.0.1
-  config.server.host = '0.0.0.0'; 
-}
 // 2. 设置 API Key
 if (process.env.API_KEY) {
   config.security.apiKey = process.env.API_KEY;
