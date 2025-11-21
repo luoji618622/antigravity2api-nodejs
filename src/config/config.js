@@ -1,6 +1,5 @@
 import fs from 'fs';
 import log from '../utils/logger.js';
-
 const defaultConfig = {
   server: { port: 8045, host: '127.0.0.1' },
   api: {
@@ -13,7 +12,6 @@ const defaultConfig = {
   security: { maxRequestSize: '50mb', apiKey: null },
   systemInstruction: '你是聊天机器人，专门为用户提供聊天和情绪价值，协助进行小说创作或者角色扮演，也可以提供数学或者代码上的建议'
 };
-
 let config;
 try {
   config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
@@ -22,5 +20,17 @@ try {
   config = defaultConfig;
   log.warn('⚠ 配置文件未找到，使用默认配置');
 }
-
+// ==================== 修改开始 ====================
+// 优先使用环境变量覆盖配置 (Zeabur 等云平台需要)
+// 1. 设置端口 (Zeabur 会自动注入 PORT 环境变量)
+if (process.env.PORT) {
+  config.server.port = parseInt(process.env.PORT);
+  // 云端部署通常需要监听 0.0.0.0 才能被外部访问，而不是 127.0.0.1
+  config.server.host = '0.0.0.0'; 
+}
+// 2. 设置 API Key
+if (process.env.API_KEY) {
+  config.security.apiKey = process.env.API_KEY;
+}
+// ==================== 修改结束 ====================
 export default config;
